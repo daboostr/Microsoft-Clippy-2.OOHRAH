@@ -14,9 +14,9 @@ Humor setting: 75%. Honesty: 90%. Both adjustable.
 - **Speech-to-speech** — Azure AI Foundry chat (`gpt-4.1`) + Azure neural TTS. Ask a question out loud, get a spoken answer.
 - **Natural barge-in** — Start talking while TARS is mid-sentence and it stops and listens, like a real conversation. (Echo cancellation runs in the renderer so TARS doesn't hear itself.)
 - **Web search** — When asked about something it doesn't know (stock prices, current events, banking trends), it searches the web and answers from live results.
-- **Two duty modes**
-  - **Active Duty** — fully awake, listening for the wake word.
-  - **At Ease** — stands down and stops listening until you call it back.
+- **Two duty modes** — both stay awake and listening; what changes is whether TARS does *work* or just *talks*.
+  - **Active Duty** — on the clock. Full toolset **including task delegation** — ask for real work (file ops, multi-step research, anything heavy) and TARS hands it off to your Scout agent. Crisp, mission-focused answers.
+  - **At Ease** — off duty. A relaxed speech-to-speech chat and companion. Same tools **minus delegation** — it won't run or hand off tasks; if you ask for real work it tells you to put it back on Active Duty first. Chattier, asks questions, keeps you company.
 - **Handoff to Scout** — Ask TARS to do heavy lifting and it drops a task into a handoff queue your main Scout agent picks up.
 - **Session recall** — Remembers the thread of your conversation.
 - **Animated 3D avatars** — A different animated pose for each state (Active Duty, At Ease, Listening, Thinking, Speaking) plus a **Salute** on shutdown.
@@ -131,11 +131,29 @@ powershell -ExecutionPolicy Bypass -File .\stop-tars.ps1
 | --- | --- |
 | **"TARS"** | Wakes up and listens |
 | *(just start talking while it speaks)* | Interrupts — it stops and listens |
-| **"At Ease"** / **"Stand down"** | Enters At Ease mode (stops listening) |
-| **"Active Duty"** | Returns to Active Duty (listens for wake word) |
+| **"At Ease"** / **"Stand down"** / **"Off duty"** | Switches to At Ease mode (stays listening, drops task delegation) |
+| **"Active Duty"** / **"Attention"** / **"Back to work"** | Returns to Active Duty (re-enables task delegation) |
 | **"TARS, shut down"** | Plays the Salute + Taps send-off and exits |
 
 Humor and honesty levels are adjustable in the bridge prompts (`bridge/bridge.mjs`).
+
+---
+
+## Duty modes at a glance
+
+Both modes keep the microphone live and the TARS personality intact. The real difference is **capability** — Active Duty can put your Scout agent to work; At Ease is purely for conversation. Switching modes also starts a fresh conversation thread.
+
+| | 🫡 Active Duty | 😎 At Ease |
+| --- | --- | --- |
+| **Posture** | On the clock, mission-focused | Off duty, relaxed companion |
+| **Delegate tasks to Scout** | ✅ Yes — hands off file ops, multi-step research, heavy/destructive work | ❌ No — tells you to go back on Active Duty first |
+| **Tools** | time, calculate, web_search, fetch_page, recall_history, **delegate** | time, calculate, web_search, fetch_page, recall_history |
+| **Web search** | ✅ | ✅ |
+| **Listening / wake word** | ✅ Always | ✅ Always |
+| **Answer style** | Crisp, one or two spoken sentences | Conversational, one to three sentences, asks questions and riffs |
+| **Switch into it by saying** | "Active Duty", "Attention", "Back to work", "On duty", "Work mode" | "At Ease", "Stand down", "Off duty", "Relax", "Let's chat" |
+
+> Note: "**Stand down**" means *At Ease* (relax), **not** shutdown. To actually exit, say "**TARS, shut down**" (or "power down", "dismissed").
 
 ---
 
