@@ -8,6 +8,20 @@ Humor setting: 75%. Honesty: 90%. Both adjustable.
 
 ---
 
+## Avatar states
+
+TARS shows a different animated 3D avatar for whatever it's doing. All six are rendered from the same model so the character stays consistent.
+
+| <img src="src/renderer/orb-gifs/TARS_active.webp" width="120"><br>**Active Duty** | <img src="src/renderer/orb-gifs/TARS_ease.webp" width="120"><br>**At Ease** | <img src="src/renderer/orb-gifs/TARS_listening.webp" width="120"><br>**Listening** |
+| :---: | :---: | :---: |
+| On the clock, ready to work | Off duty, just chatting | Hearing you after the wake word |
+| <img src="src/renderer/orb-gifs/TARS_thinking.webp" width="120"><br>**Thinking** | <img src="src/renderer/orb-gifs/TARS_speaking.webp" width="120"><br>**Speaking** | <img src="src/renderer/orb-gifs/TARS_shutdown.webp" width="120"><br>**Salute** |
+| Working it out (Marine Corps Hymn hums) | Talking back | Shutdown send-off (under *Taps*) |
+
+> Avatars & likeness © DaBoostR — [CC BY-NC-ND 4.0](./LICENSE-ASSETS.md). Non-commercial, no derivatives.
+
+---
+
 ## What it does
 
 - **Wake word** — Say "TARS" and it wakes up. No hotkeys, no clicking.
