@@ -13,6 +13,7 @@ import * as timeTool from './tools/time.mjs';
 import * as calcTool from './tools/calculate.mjs';
 import * as webTool from './tools/web_search.mjs';
 import * as fetchTool from './tools/fetch_page.mjs';
+import * as stockTool from './tools/get_stock.mjs';
 import * as delegateTool from './tools/delegate.mjs';
 import * as recallTool from './tools/recall_history.mjs';
 import { renderInbox } from './inbox.mjs';
@@ -169,15 +170,15 @@ function httpsPostJson(urlStr, headers, bodyStr) {
 }
 
 // Tools available per mode. Active Duty can delegate; At Ease is pure S2S (no delegation).
-const ALL_TOOLS = { time: timeTool, calculate: calcTool, web_search: webTool, fetch_page: fetchTool, recall_history: recallTool, delegate: delegateTool };
+const ALL_TOOLS = { time: timeTool, calculate: calcTool, web_search: webTool, fetch_page: fetchTool, get_stock: stockTool, recall_history: recallTool, delegate: delegateTool };
 
 // mode: 'active' (Active Duty) | 'ease' (At Ease)
 let mode = 'active';
 
 function toolsForMode() {
   const names = mode === 'ease'
-    ? ['time', 'calculate', 'web_search', 'fetch_page', 'recall_history']        // no delegate
-    : ['time', 'calculate', 'web_search', 'fetch_page', 'recall_history', 'delegate'];
+    ? ['time', 'calculate', 'web_search', 'fetch_page', 'get_stock', 'recall_history']        // no delegate
+    : ['time', 'calculate', 'web_search', 'fetch_page', 'get_stock', 'recall_history', 'delegate'];
   const map = {}; const specs = [];
   for (const n of names) { map[n] = ALL_TOOLS[n]; specs.push(ALL_TOOLS[n].spec); }
   return { map, specs };
@@ -190,8 +191,9 @@ const PROMPT_ACTIVE =
   "'dial up the humor', 'take it to ninety'), adjust within those caps and briefly announce the new setting, TARS-style. " +
   "You may reference your settings when it lands. " +
   "This is SPOKEN aloud: one or two short sentences, no markdown, no lists, no emoji, never read raw JSON. " +
-  "MODE: ACTIVE DUTY. You have local tools: time, calculate, web_search, fetch_page, recall_history (search past conversations). " +
+  "MODE: ACTIVE DUTY. You have local tools: time, calculate, web_search, fetch_page, get_stock, recall_history (search past conversations). " +
   "Use recall_history whenever the user asks about previous sessions or what you discussed before. " +
+  "For ANY stock price, quote, or share price, call get_stock (never web_search for prices). " +
   "When the user asks about current events, trends, markets, banking, news, or your OPINION on something you are not fully current on, " +
   "call web_search first (and fetch_page for depth), then answer with a grounded, opinionated take in one or two spoken sentences. Do not guess when you can search. " +
   "For ANYTHING heavy -- launching a skill, email, calendar, files, code, the user's data, MSX/pipeline, browser, " +
@@ -206,7 +208,8 @@ const PROMPT_EASE =
   "This is SPOKEN aloud: keep it conversational and natural, usually one to three sentences, no markdown, no lists, no emoji. " +
   "MODE: AT EASE. This is a relaxed speech-to-speech chat. You do NOT delegate anything and you do NOT run tasks; " +
   "if the user wants real work done, tell them to put you back on Active Duty first. " +
-  "You CAN use recall_history to remember and talk about past conversations, plus time, calculate, web_search, and fetch_page. " +
+  "You CAN use recall_history to remember and talk about past conversations, plus time, calculate, web_search, fetch_page, and get_stock. " +
+  "For any stock price or quote, call get_stock (never web_search for prices). " +
   "When the user asks your opinion on current topics, trends, markets, banking, or news -- or anything you are not fully current on -- " +
   "call web_search first (fetch_page for depth), then give a grounded, opinionated, conversational take. Do not guess when you can look it up. " +
   "Be a good conversationalist: ask the occasional question, riff, and keep the user company.";
