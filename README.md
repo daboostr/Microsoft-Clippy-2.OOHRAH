@@ -1,6 +1,6 @@
 # Microsoft Clippy 2.OOHRAH
 
-> *"Everybody good? Plenty of slaves for my robot colony?"*
+> *"I have a cue light I can use to show you when I'm joking, if you like."*
 
 **TARS Voice** — a hands-free, wake-word desktop voice companion with the TARS personality from *Interstellar*, built to ride shotgun with [Microsoft Scout](https://aka.ms/scout). It listens for "**TARS**", talks back in a neural voice, lets you talk right over it (natural barge-in), searches the web when it doesn't know something, hands long-running tasks off to your Scout agent, and shows an animated 3D avatar for each of its states — complete with a bugle send-off.
 
