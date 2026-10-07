@@ -1,0 +1,28 @@
+# Secrets — never commit
+.env
+.aikey
+*.key
+
+# Dependencies (restored via npm install)
+node_modules/
+
+# Superseded / source assets
+tars-gifs-src/
+src/renderer/orb-gifs/*.gif
+src/renderer/orb-gifs/TARS_shutdown.png
+
+# Original (pre-transcode) audio — the app uses src/renderer/audio/*.wav
+/taps.wav
+/reveille.wav
+/the_marines_hymn_slow_version.mp3
+
+# Scratch / scratch test files
+ddgtest.mjs
+*.scratch.*
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log
+chrome_debug.log

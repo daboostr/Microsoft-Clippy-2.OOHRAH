@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' blob:; worker-src 'self' blob: data:; child-src 'self' blob: data:; connect-src https://*.cognitiveservices.azure.com wss://*.cognitiveservices.azure.com https://*.stt.speech.microsoft.com wss://*.stt.speech.microsoft.com https://*.tts.speech.microsoft.com wss://*.tts.speech.microsoft.com https://*.api.cognitive.microsoft.com; media-src 'self' blob: data:;" />
+  <link rel="stylesheet" href="orb.css" />
+</head>
+<body>
+  <div id="stage">
+    <div id="bar">
+      <div id="drag" title="Drag to move">⠿</div>
+      <button id="mute" title="Mute mic">🎙</button>
+      <button id="min" title="Minimize (Ctrl+Shift+Space to restore)">—</button>
+      <button id="close" title="Quit">✕</button>
+    </div>
+    <div id="orb"><div id="halo"></div><img id="tarsimg" src="orb-gifs/TARS_active.webp" alt="TARS" /></div>
+    <div id="mode" class="active">ACTIVE DUTY</div>
+    <div id="caption"></div>
+    <div id="status">starting mic…</div>
+  </div>
+  <script src="speech-sdk.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
