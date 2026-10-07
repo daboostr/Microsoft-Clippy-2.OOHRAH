@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import https from 'node:https';
+import dns from 'node:dns';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
@@ -21,8 +23,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function loadDotEnv() {
   const envPath = path.join(__dirname, '..', '.env');
   if (!fs.existsSync(envPath)) return;
-  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+  const raw = fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, ''); // strip BOM
+  for (const line of raw.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/i);
     if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   }
 }
@@ -54,6 +57,114 @@ function getAadToken(resource) {
   return parsed.t;
 }
 const COGNITIVE = 'https://cognitiveservices.azure.com';
+
+// ---- Resilience: retry transient network/DNS/throttle failures ----
+// Corpnet DNS can intermittently SERVFAIL on *.cognitiveservices.azure.com; a single
+// blip shouldn't kill a live demo. Retry transient failures with short backoff.
+const TRANSIENT_NET = /ENOTFOUND|EAI_AGAIN|No such host|getaddrinfo|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|socket hang up|network|fetch failed|dns/i;
+function isTransient(err, status) {
+  if (status && (status === 408 || status === 429 || (status >= 500 && status <= 599))) return true;
+  const m = (err && (err.message || String(err))) || '';
+  if (err && (err.code && TRANSIENT_NET.test(err.code))) return true;
+  if (err && err.cause && (TRANSIENT_NET.test(err.cause.code || '') || TRANSIENT_NET.test(err.cause.message || ''))) return true;
+  return TRANSIENT_NET.test(m);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function withRetry(fn, { attempts = 3, base = 600, label = 'op' } = {}) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fn(i); }
+    catch (e) {
+      last = e;
+      const retryable = e && e.__retryable !== undefined ? e.__retryable : isTransient(e);
+      if (!retryable || i === attempts - 1) throw e;
+      const wait = base * Math.pow(2, i) + Math.floor(Math.random() * 200);
+      console.warn(`[bridge] ${label} transient failure (attempt ${i + 1}/${attempts}): ${e.message} — retrying in ${wait}ms`);
+      await sleep(wait);
+    }
+  }
+  throw last;
+}
+
+// ---- DNS-over-HTTPS fallback -------------------------------------------------
+// On Microsoft corpnet, the resolver intermittently SERVFAILs the
+// *.cognitiveservices.azure.com zone, and outbound port-53 DNS to public
+// resolvers is blocked — but DoH over 443 works. So when the OS resolver fails,
+// resolve the host via DoH (Cloudflare by IP, Google by IP as backup) and
+// connect straight to the returned A record. No new dependencies.
+const _dohCache = new Map(); // host -> { ip, exp }
+const DOH_SERVERS = [
+  { ip: '1.1.1.1', host: 'cloudflare-dns.com' },
+  { ip: '8.8.8.8', host: 'dns.google' },
+];
+function dohQuery(server, hostname) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      host: server.ip, servername: server.host, port: 443,
+      path: `/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
+      headers: { accept: 'application/dns-json', host: server.host },
+      timeout: 5000,
+    }, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(body);
+          const a = (j.Answer || []).find((x) => x.type === 1 && x.data);
+          if (a) resolve(a.data); else reject(new Error('DoH: no A record'));
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('DoH timeout')));
+    req.end();
+  });
+}
+async function dohResolve(hostname) {
+  const cached = _dohCache.get(hostname);
+  if (cached && cached.exp > Date.now()) return cached.ip;
+  let err;
+  for (const srv of DOH_SERVERS) {
+    try {
+      const ip = await dohQuery(srv, hostname);
+      _dohCache.set(hostname, { ip, exp: Date.now() + 5 * 60 * 1000 });
+      console.warn(`[bridge] DoH resolved ${hostname} -> ${ip} via ${srv.host}`);
+      return ip;
+    } catch (e) { err = e; }
+  }
+  throw err || new Error('DoH failed');
+}
+// Custom lookup for https.request: native getaddrinfo first, DoH on failure.
+function dohLookup(hostname, options, callback) {
+  const cb = typeof options === 'function' ? options : callback;
+  const opts = typeof options === 'function' ? {} : (options || {});
+  dns.lookup(hostname, opts, (err, address, family) => {
+    if (!err) { if (opts.all) return cb(null, [{ address, family }]); return cb(null, address, family); }
+    dohResolve(hostname)
+      .then((ip) => { if (opts.all) cb(null, [{ address: ip, family: 4 }]); else cb(null, ip, 4); })
+      .catch(() => cb(err)); // give up with the original OS error
+  });
+}
+
+// POST JSON over https with the DoH-aware lookup (used for the chat endpoint).
+function httpsPostJson(urlStr, headers, bodyStr) {
+  const u = new URL(urlStr);
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'POST',
+      headers: { ...headers, 'Content-Length': Buffer.byteLength(bodyStr) },
+      lookup: dohLookup, timeout: 30000,
+    }, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => resolve({ status: res.statusCode, text: body }));
+    });
+    req.on('error', (e) => { e.__retryable = true; reject(e); });
+    req.on('timeout', () => { const e = new Error('request timeout'); e.__retryable = true; req.destroy(e); reject(e); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
 
 // Tools available per mode. Active Duty can delegate; At Ease is pure S2S (no delegation).
 const ALL_TOOLS = { time: timeTool, calculate: calcTool, web_search: webTool, fetch_page: fetchTool, recall_history: recallTool, delegate: delegateTool };
@@ -113,20 +224,25 @@ function setMode(value) { send({ type: 'set-mode', value }); }
 
 // ---- Azure OpenAI chat (Entra bearer) ----
 async function chat(messages, specs) {
-  const token = getAadToken(COGNITIVE);
   const url = `${CFG.endpoint}/openai/deployments/${CFG.deployment}/chat/completions?api-version=${CFG.apiVersion}`;
   const payload = { messages, max_tokens: 400, temperature: mode === 'ease' ? 0.8 : 0.6 };
   if (specs && specs.length) { payload.tools = specs; payload.tool_choice = 'auto'; }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`CHAT_HTTP_${res.status}: ${body.slice(0, 300)}`);
-  }
-  return res.json();
+  const bodyStr = JSON.stringify(payload);
+  return withRetry(async () => {
+    const token = getAadToken(COGNITIVE);
+    // https.request with DoH-aware lookup: survives corpnet DNS SERVFAIL on the
+    // cognitiveservices zone by resolving over DoH (443) and connecting to the IP.
+    const res = await httpsPostJson(url, {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+    }, bodyStr);
+    if (res.status < 200 || res.status >= 300) {
+      const err = new Error(`CHAT_HTTP_${res.status}: ${(res.text || '').slice(0, 300)}`);
+      err.__retryable = isTransient(null, res.status); // 408/429/5xx retry; 4xx (auth/quota) don't
+      throw err;
+    }
+    return JSON.parse(res.text);
+  }, { attempts: 3, base: 600, label: 'chat' });
 }
 
 async function chatWithTools(userText) {
@@ -189,7 +305,7 @@ function waitIdle(timeoutMs) {
 }
 
 // ---- Azure Speech TTS: synthesize to WAV (Entra auth), then play on the OS ----
-function speak(text) {
+function speakOnce(text) {
   return new Promise((resolve, reject) => {
     if (!CFG.resourceId) return reject(new Error('NO_RESOURCE_ID'));
     const token = getAadToken(COGNITIVE);
@@ -209,12 +325,24 @@ function speak(text) {
           try { fs.unlinkSync(tmp); } catch (_) {}
           resolve();
         } else {
-          reject(new Error(r.errorDetails || ('TTS reason ' + r.reason)));
+          // Connection/auth failures surface here; mark network ones retryable.
+          const err = new Error(r.errorDetails || ('TTS reason ' + r.reason));
+          err.__retryable = isTransient(err) || /connection|timeout|1006|network/i.test(err.message);
+          reject(err);
         }
       },
-      (e) => { synth.close(); reject(new Error(e)); }
+      (e) => {
+        synth.close();
+        const err = new Error(typeof e === 'string' ? e : (e && e.message) || 'TTS error');
+        err.__retryable = isTransient(err) || /connection|timeout|1006|network/i.test(err.message);
+        reject(err);
+      }
     );
   });
+}
+// Retry transient TTS failures (same corpnet DNS/connection blips as chat).
+function speak(text) {
+  return withRetry(() => speakOnce(text), { attempts: 3, base: 500, label: 'tts' });
 }
 
 // Speech playback is delegated to the renderer (Web Audio) so Chromium echo-cancellation
@@ -322,7 +450,10 @@ async function handleUtterance(text) {
   } catch (e) {
     console.error('[bridge] chat failed:', e.message);
     setMode('default');
-    await say('I ran into an error reaching Azure.');
+    const net = isTransient(e) || /CHAT_HTTP_(408|429|5\d\d)/.test(e.message || '');
+    await say(net
+      ? 'The network just hiccuped on me. Give me that one more time.'
+      : 'Something went sideways on my end. Say again?');
   }
 }
 

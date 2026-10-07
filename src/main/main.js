@@ -13,8 +13,9 @@ const VALID_MODES = ['default', 'listening', 'thinking', 'speaking'];
   try {
     const envPath = path.join(__dirname, '..', '..', '.env');
     if (fs.existsSync(envPath)) {
-      for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
+      const raw = fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, ''); // strip BOM
+      for (const line of raw.split(/\r?\n/)) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/i);
         if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
       }
     }
