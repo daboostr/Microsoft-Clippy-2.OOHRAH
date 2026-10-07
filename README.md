@@ -68,18 +68,45 @@ Three cooperating pieces:
 
 ## Prerequisites
 
-1. **Windows** with PowerShell.
-2. **Node.js 18+** and **npm**.
-3. **Azure CLI** (`az`) — signed in to a subscription that owns your Azure AI resource.
-4. **An Azure AI Foundry / Azure OpenAI resource** with:
-   - A chat deployment (e.g. `gpt-4.1`).
-   - An Azure **Speech** resource (neural TTS) in the same region is recommended.
-   - **AAD (Entra) auth** — this app authenticates with Azure AD tokens, not API keys. It mints tokens with `az account get-access-token --resource https://cognitiveservices.azure.com`. Make sure your signed-in identity has **Cognitive Services User** (or equivalent) on the resources.
-5. **Microsoft Scout** (optional) — only needed for the task-handoff feature.
+You really only need two things:
+
+1. **Microsoft Scout** — TARS rides alongside it (and powers the task-handoff feature).
+2. **An Azure subscription** whose account can create **Azure AI Foundry** resources.
+
+That's it. The **[`/hydrate-tars` install skill](#install-the-easy-way)** auto-provisions
+everything else — it clones this repo, installs Node dependencies, creates (or reuses) the Azure
+AI Foundry resource and chat deployment, wires up keyless Entra ID auth, and writes your config.
+
+<details>
+<summary>What the skill sets up under the hood (for the curious / manual installers)</summary>
+
+- **Windows + PowerShell**, **Node.js 18+**, and the **Azure CLI** (`az`).
+- A single **Azure AI Foundry (`AIServices`) resource with a custom domain** that serves chat +
+  speech-to-text + text-to-speech, plus a chat deployment (e.g. `gpt-4.1`).
+- **AAD (Entra) auth — no API keys.** Tokens are minted with
+  `az account get-access-token --resource https://cognitiveservices.azure.com`; your identity
+  gets the **Cognitive Services User** role on the resource.
+
+You can do all of this by hand (see [Manual setup](#manual-setup) below) — but the skill exists
+so you don't have to.
+</details>
 
 ---
 
-## Setup
+## Install — the easy way
+
+In Microsoft Scout, run:
+
+```
+/hydrate-tars
+```
+
+The skill walks you through provisioning and launches TARS when it's done. If you don't have the
+Azure resources yet, it creates them for you.
+
+---
+
+## Manual setup
 
 ```powershell
 git clone https://github.com/DaBoostR/Microsoft-Clippy-2.OOHRAH.git
