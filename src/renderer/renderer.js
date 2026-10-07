@@ -166,6 +166,15 @@ function stripWake(text) {
 
 // Barge-in: require the wake word (or a clear stop command) so TARS's own
 // speaker audio can never self-trigger an interruption.
+// Tier 2 (strict barge-in): while TARS is speaking, ONLY the wake word
+// interrupts him — a bystander talking over him won't cut him off. Set to
+// false to allow any 2+ word utterance to interrupt (old talk-over behavior).
+const STRICT_BARGE_IN = true;
+// Dedicated interrupt phrase (distinct from the wake word) to cut TARS off
+// mid-speech: "TARS, ears" (or just "ears"). He acks with "Open, sir" and
+// drops straight into listening mode.
+const EARS_RE = /\bears\b/i;
+const EARS_ACK = 'Open, sir.';
 const STOP_RE = /\b(stop|quiet|shut up|shush|hush|enough|cancel|never ?mind|be quiet)\b/i;
 const ECHO_COOLDOWN_MS = 1200; // ignore input briefly after speech ends (trailing echo)
 const ECHO_WINDOW_MS = 4000;   // within this window after speaking, reject echo-like phrases
@@ -198,13 +207,34 @@ function goAwake() {
 }
 
 function handleRecognized(text) {
-  // --- Barge-in: TARS is currently speaking (just talk over it) ---
+  // --- Dedicated interrupt phrase: "TARS, ears" (or "ears") ---
+  // Works whether TARS is still speaking or the interim handler already barged
+  // in (speech just stopped) — then ack "Open, sir" and drop into listening.
+  if (EARS_RE.test(text) && (liveMode === 'speaking' || Date.now() - speakEndedAt < 1800)) {
+    doBargeIn();
+    recentSpoken = EARS_ACK; speakEndedAt = Date.now(); // so his own ack isn't heard as a command
+    speakLocalLine(EARS_ACK);
+    goAwake();
+    return;
+  }
+  // Drop TARS's own "Open, sir" ack if the mic catches it right after.
+  if (Date.now() - speakEndedAt < 2500 && overlap(text, EARS_ACK) >= 0.5) return;
+
+  // --- Barge-in: TARS is currently speaking ---
   if (liveMode === 'speaking') {
     if (echoOfCurrent(text)) return; // AEC backstop: ignore TARS's own leaked voice
     const twoPlus = text.trim().split(/\s+/).length >= 2;
     const hasWake = WAKE_RE.test(text);
     const hasStop = STOP_RE.test(text);
-    if (!twoPlus && !hasWake && !hasStop) return; // ignore tiny fragments
+
+    // Tier 2: in strict mode, only the wake word interrupts — bystanders talking
+    // (even full sentences) are ignored so they can't hijack or cut off TARS.
+    // Applied on Active Duty (demos/commands); At Ease keeps natural talk-over.
+    if (STRICT_BARGE_IN && opMode === 'active') {
+      if (!hasWake) return;
+    } else if (!twoPlus && !hasWake && !hasStop) {
+      return; // ignore tiny fragments
+    }
     doBargeIn();
     const afterWake = hasWake ? stripWake(text) : text.trim();
     const residual = afterWake.replace(STOP_RE, '').trim();
@@ -290,10 +320,54 @@ function speakText(id, text) {
   }
 }
 
+// Speak a short local line (e.g. the "Open, sir" interrupt ack) without going
+// through the bridge's speak queue — fire-and-forget through the same SDK path.
+function speakLocalLine(text) {
+  try {
+    if (!window.SpeechSDK || !lastCreds || !lastCreds.authToken) return;
+    const sc = window.SpeechSDK.SpeechConfig.fromAuthorizationToken(lastCreds.authToken, lastCreds.region);
+    sc.speechSynthesisVoiceName = speechVoice;
+    const player = new window.SpeechSDK.SpeakerAudioDestination();
+    const audioConfig = window.SpeechSDK.AudioConfig.fromSpeakerOutput(player);
+    const synth = new window.SpeechSDK.SpeechSynthesizer(sc, audioConfig);
+    player.onAudioEnd = () => { try { synth.close(); } catch (_) {} };
+    synth.speakTextAsync(text, () => {}, () => { try { synth.close(); } catch (_) {} });
+  } catch (_) {}
+}
+
 function doBargeIn() {
   stopCurrentSpeech(true);          // stop renderer audio + tell bridge we're done
   try { window.orbAPI.bargeIn(); } catch (_) {} // stop any bridge-side fallback playback
   setStatus('interrupted');
+}
+
+// ---- Tier 1 voice isolation: capture the mic with aggressive ambient
+// suppression so bystanders / room noise are filtered before recognition.
+async function getIsolatedMicStream() {
+  const base = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    // Chromium-specific "goog" hints for stronger isolation/voice-focus.
+    googEchoCancellation: true,
+    googNoiseSuppression: true,
+    googNoiseSuppression2: true,
+    googAutoGainControl: true,
+    googHighpassFilter: true,
+    googExperimentalNoiseSuppression: true,
+    googExperimentalEchoCancellation: true,
+  };
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: base, video: false });
+  } catch (_) {
+    // Fallback to the three standard constraints if goog hints are rejected.
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false
+      });
+    } catch (e2) { return null; }
+  }
 }
 
 async function startMic() {
@@ -306,7 +380,11 @@ async function startMic() {
 
   const speechConfig = window.SpeechSDK.SpeechConfig.fromAuthorizationToken(creds.authToken, creds.region);
   speechConfig.speechRecognitionLanguage = 'en-US';
-  const audioConfig = window.SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+  // Tier 1: feed a noise-suppressed MediaStream instead of the raw default mic.
+  const isolatedStream = await getIsolatedMicStream();
+  const audioConfig = isolatedStream
+    ? window.SpeechSDK.AudioConfig.fromStreamInput(isolatedStream)
+    : window.SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
   recognizer = new window.SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
   recognizer.recognizing = (_s, e) => {
@@ -314,6 +392,13 @@ async function startMic() {
     if (liveMode !== 'speaking') return;
     const txt = (e.result && e.result.text || '').trim();
     if (!txt || echoOfCurrent(txt)) return;
+    // The dedicated interrupt phrase cuts in immediately (handleRecognized does the ack).
+    if (EARS_RE.test(txt)) { doBargeIn(); return; }
+    // Tier 2: strict barge-in only reacts to the wake word mid-speech (Active Duty).
+    if (STRICT_BARGE_IN && opMode === 'active') {
+      if (WAKE_RE.test(txt)) doBargeIn();
+      return;
+    }
     if (txt.split(/\s+/).length >= 2 || WAKE_RE.test(txt) || STOP_RE.test(txt)) doBargeIn();
   };
   recognizer.recognized = (_s, e) => {
