@@ -195,4 +195,16 @@ Built as a companion to Microsoft Scout. TARS persona and quotes are an homage t
 
 ## License
 
-[MIT](./LICENSE) © 2026 DaBoostR
+This project is **dual-licensed** — the code is open source, the creative assets are not.
+
+| What | License | You can… | You can't… |
+| --- | --- | --- | --- |
+| **Source code** | [MIT](./LICENSE) | Use, modify, redistribute, even commercially | — |
+| **Avatars, icons, likeness, "Clippy 2.OOHRAH" name** | [CC BY-NC-ND 4.0](./LICENSE-ASSETS.md) + likeness reservation | Use & share *as-is* with attribution | Sell, use commercially, or remix/alter the avatars or likeness |
+| **Audio** (Taps, Reveille, Marines' Hymn) | Public domain | Use freely | — (not the author's IP) |
+
+In plain terms: **the code is free to build on, but the avatars and the author's likeness are personal IP — non-commercial, no resale, no derivatives.** See [`LICENSE-ASSETS.md`](./LICENSE-ASSETS.md) for the full terms.
+
+> Tribute note: "Microsoft" and "Clippy" are Microsoft trademarks; "TARS" and *Interstellar* are Warner Bros. properties. This is a non-commercial fan tribute with no affiliation or endorsement implied; those marks are not licensed here.
+
+© 2026 DaBoostR
