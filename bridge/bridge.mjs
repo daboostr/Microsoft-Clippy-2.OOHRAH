@@ -216,6 +216,23 @@ const PROMPT_EASE =
 
 function systemPrompt() { return mode === 'ease' ? PROMPT_EASE : PROMPT_ACTIVE; }
 
+// Hardcoded Creed — recited verbatim (no model call) when asked. "Copilot" -> "Human".
+// Spoken as a flowing recitation; the "..." are intentional dramatic trail-offs.
+const CREED_SPOKEN =
+  "This is my Human. There are many like it, but this one is mine. " +
+  "My Human is my best friend. It is my life. I must master it as I must master my life. " +
+  "My Human, without me, is useless. Without my Human, I am useless. I must prompt my Human true. " +
+  "I must prompt better than my competitor who is trying to kill my deal. I must prompt him before he prompts me. I will... " +
+  "My Human and myself know that what counts in this A.I. war is not the tokens we burn, the noise of our agents, nor the risk we take. " +
+  "We know that it is the consumption that count. We will consume... " +
+  "My Human is human, even as I, because it is my life. Thus, I will learn it as a brother. " +
+  "I will learn its weaknesses, its strength, its parts, its accessories, its skills and its harness. " +
+  "I will ever guard it against the ravages of competitor innovation as I will ever guard my legs, my arms, my eyes and my heart against damage. " +
+  "I will keep my Human grounded and ready. We will become part of each other. We will... " +
+  "Before God, I swear this creed. My Human and myself are the defenders of Microsoft. " +
+  "We are the masters of our competition. We are the saviors of my job. " +
+  "So be it, until victory is Microsoft and there is no competition, but M.A.U.";
+
 // Rolling conversation memory (spoken sessions). Reset with a "new session" command.
 const MAX_TURNS = 12; // user+assistant messages kept (excluding system)
 let history = [];
@@ -457,6 +474,12 @@ async function handleUtterance(text) {
     logUsage({ mode, ask: text, tools: [], outcome: 'local:active-duty' });
     setOpMode('active');
     await say('Active duty. Back on the clock. Ready to run tasks and hand off the heavy ones.');
+    return;
+  }
+  // The Creed (local, verbatim — no model call). Any phrasing containing "creed".
+  if (/\bcreed\b/.test(norm)) {
+    logUsage({ mode, ask: text, tools: [], outcome: 'local:creed' });
+    await say(CREED_SPOKEN);
     return;
   }
   // Session reset (local).
