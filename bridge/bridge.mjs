@@ -253,6 +253,7 @@ async function chat(messages, specs) {
 async function chatWithTools(userText) {
   const { map, specs } = toolsForMode();
   const messages = [{ role: 'system', content: systemPrompt() }, ...history, { role: 'user', content: userText }];
+  const toolsFired = [];
   const MAX_HOPS = 7;
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     const lastHop = hop === MAX_HOPS - 1;
@@ -270,7 +271,8 @@ async function chatWithTools(userText) {
           const args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
           console.log('[bridge] tool:', call.function.name, JSON.stringify(args).slice(0, 120));
           result = tool ? await tool.run(args) : { error: 'Unknown tool' };
-        } catch (e) { result = { error: e.message }; }
+          toolsFired.push(call.function.name);
+        } catch (e) { result = { error: e.message }; toolsFired.push(call.function.name + ':error'); }
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
       }
       continue;
@@ -279,10 +281,23 @@ async function chatWithTools(userText) {
     if (reply) {
       history.push({ role: 'user', content: userText }, { role: 'assistant', content: reply });
       if (history.length > MAX_TURNS) history = history.slice(history.length - MAX_TURNS);
+      lastToolsFired = toolsFired;
       return reply;
     }
   }
+  lastToolsFired = toolsFired;
   return 'I could not pull that together in time. Ask me again?';
+}
+
+// ---- Quiet usage log (field-test): one JSONL line per spoken ask, so a week
+// of real usage produces data for bucketizing queries. Never logs secrets.
+let lastToolsFired = [];
+const USAGE_LOG = path.join(os.homedir(), '.copilot', 'tars-usage.log');
+function logUsage(entry) {
+  try {
+    fs.mkdirSync(path.dirname(USAGE_LOG), { recursive: true });
+    fs.appendFileSync(USAGE_LOG, JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n');
+  } catch (_) {}
 }
 
 // ---- Play a WAV file through the Windows default audio device (interruptible) ----
@@ -433,11 +448,13 @@ async function handleUtterance(text) {
   }
   // Mode switches (local, no model call).
   if (/\b(at ease|stand down|relax|off duty|let'?s chat|chat mode|casual mode)\b/.test(norm)) {
+    logUsage({ mode, ask: text, tools: [], outcome: 'local:at-ease' });
     setOpMode('ease');
     await say('At ease. Just us talking now. What is on your mind?');
     return;
   }
   if (/\b(active duty|attention|back to work|on duty|work mode|get to work)\b/.test(norm)) {
+    logUsage({ mode, ask: text, tools: [], outcome: 'local:active-duty' });
     setOpMode('active');
     await say('Active duty. Back on the clock. Ready to run tasks and hand off the heavy ones.');
     return;
@@ -449,13 +466,17 @@ async function handleUtterance(text) {
     return;
   }
   setMode('thinking');
+  lastToolsFired = [];
+  const t0 = Date.now();
   try {
     const reply = await chatWithTools(text);
+    logUsage({ mode, ask: text, tools: lastToolsFired, outcome: 'answered', ms: Date.now() - t0 });
     await say(reply || 'Done.');
   } catch (e) {
     console.error('[bridge] chat failed:', e.message);
     setMode('default');
     const net = isTransient(e) || /CHAT_HTTP_(408|429|5\d\d)/.test(e.message || '');
+    logUsage({ mode, ask: text, tools: lastToolsFired, outcome: 'error', error: e.message.slice(0, 120), ms: Date.now() - t0 });
     await say(net
       ? 'The network just hiccuped on me. Give me that one more time.'
       : 'Something went sideways on my end. Say again?');
