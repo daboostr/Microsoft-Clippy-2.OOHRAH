@@ -230,7 +230,7 @@ Both modes keep the microphone live and the TARS personality intact. The real di
 
 Built as a companion to Microsoft Scout. TARS persona and quotes are an homage to *Interstellar* (© Warner Bros.) — this is a fan-made, non-commercial tribute.
 
-🫡 *Oorah.*
+<img src="src/renderer/orb-gifs/TARS_shutdown.webp" width="60" align="top"> *Oorah.*
 
 ---
 
