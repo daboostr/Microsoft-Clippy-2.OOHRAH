@@ -135,11 +135,13 @@ async function dohResolve(hostname) {
   throw err || new Error('DoH failed');
 }
 // Custom lookup for https.request: native getaddrinfo first, DoH on failure.
+// Note: with opts.all, dns.lookup's callback 'address' is ALREADY an array of
+// { address, family } — pass it through unchanged (do not re-wrap).
 function dohLookup(hostname, options, callback) {
   const cb = typeof options === 'function' ? options : callback;
   const opts = typeof options === 'function' ? {} : (options || {});
   dns.lookup(hostname, opts, (err, address, family) => {
-    if (!err) { if (opts.all) return cb(null, [{ address, family }]); return cb(null, address, family); }
+    if (!err) { return opts.all ? cb(null, address) : cb(null, address, family); }
     dohResolve(hostname)
       .then((ip) => { if (opts.all) cb(null, [{ address: ip, family: 4 }]); else cb(null, ip, 4); })
       .catch(() => cb(err)); // give up with the original OS error
