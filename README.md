@@ -184,7 +184,7 @@ Humor and honesty levels are adjustable in the bridge prompts (`bridge/bridge.mj
 
 Both modes keep the microphone live and the TARS personality intact. The real difference is **capability** — Active Duty can put your Scout agent to work; At Ease is purely for conversation. Switching modes also starts a fresh conversation thread.
 
-| | 🫡 Active Duty | 😎 At Ease |
+| | <img src="src/renderer/orb-gifs/TARS_active.webp" width="72"><br>Active Duty | <img src="src/renderer/orb-gifs/TARS_ease.webp" width="72"><br>At Ease |
 | --- | --- | --- |
 | **Posture** | On the clock, mission-focused | Off duty, relaxed companion |
 | **Delegate tasks to Scout** | ✅ Yes — hands off file ops, multi-step research, heavy/destructive work | ❌ No — tells you to go back on Active Duty first |
