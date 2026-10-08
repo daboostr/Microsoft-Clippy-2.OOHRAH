@@ -158,6 +158,30 @@ let awake = false;
 let wakeTimer = null;
 let recognizer = null;
 
+// --- Active Duty command accumulation + "Copy" terminator ---
+// A spoken command is buffered across recognized segments so stutters/pauses
+// don't trigger a premature delegate. Close a command explicitly with "Copy"
+// (radio style — say it alone after a beat) and TARS acks "Copy." and runs it.
+// If you don't say the terminator, a fallback timer dispatches after some silence.
+// Safe matching: a STANDALONE "copy"/"over" segment, or the distinctive
+// "copy that"/"how copy" trailing — so real content like "send Ali a copy" or
+// "is the meeting over" is NOT mistaken for a terminator.
+const COPY_STANDALONE = /^(copy|copy that|how copy|over|out)\s*[.?!]*$/i;
+const COPY_TRAILING = /\b(copy that|how copy)\s*[.?!]*$/i;
+const COPY_STRIP = /\s*\b(copy that|how copy|copy|over|out)\s*[.?!]*$/i;
+function isCopyTerminator(seg) { const s = seg.trim(); return COPY_STANDALONE.test(s) || COPY_TRAILING.test(s); }
+function stripCopy(seg) { return seg.replace(COPY_STRIP, '').trim(); }
+const COPY_ACK = 'Copy.';
+const CMD_FALLBACK_MS = 3500; // dispatch the buffer after this much post-segment silence
+let cmdBuffer = [];
+let cmdTimer = null;
+function resetCmd() { cmdBuffer = []; clearTimeout(cmdTimer); cmdTimer = null; }
+function flushCmd() {
+  const full = cmdBuffer.join(' ').replace(/\s+/g, ' ').trim();
+  resetCmd();
+  if (full) dispatch(full);
+}
+
 function setStatus(t) { statusEl.textContent = t; }
 
 function stripWake(text) {
@@ -196,13 +220,15 @@ function looksLikeEcho(text) {
 
 function goAwake() {
   awake = true;
+  resetCmd();
   applyStyle('listening', 'Listening...');
-  setStatus('awake - say your command');
+  setStatus('listening — say "Copy" when done');
   clearTimeout(wakeTimer);
   wakeTimer = setTimeout(() => {
     awake = false;
     applyStyle('default', '');
     setStatus('say "TARS" to wake');
+    resetCmd();
   }, WAKE_WINDOW_MS);
 }
 
@@ -217,8 +243,8 @@ function handleRecognized(text) {
     goAwake();
     return;
   }
-  // Drop TARS's own "Open, sir" ack if the mic catches it right after.
-  if (Date.now() - speakEndedAt < 2500 && overlap(text, EARS_ACK) >= 0.5) return;
+  // Drop TARS's own "Open, sir" / "Copy." acks if the mic catches them right after.
+  if (Date.now() - speakEndedAt < 2500 && (overlap(text, EARS_ACK) >= 0.5 || overlap(text, COPY_ACK) >= 0.5)) return;
 
   // --- Barge-in: TARS is currently speaking ---
   if (liveMode === 'speaking') {
@@ -257,18 +283,47 @@ function handleRecognized(text) {
   if (!awake) {
     if (WAKE_RE.test(text)) {
       const after = stripWake(text);
-      if (after) dispatch(after);
-      else goAwake();
+      resetCmd();
+      if (after) {
+        // Wake + command in one breath. If it also closes with "Copy", run now.
+        if (isCopyTerminator(after)) { const c = stripCopy(after); if (c) cmdBuffer.push(c); speakLocalLine(COPY_ACK); flushCmd(); }
+        else { cmdBuffer.push(after); armCmdTimer(); }
+      } else goAwake();
     }
     return;
   }
-  const cmd = stripWake(text);
-  if (cmd) dispatch(cmd);
+  // Already awake: accumulate this segment; "Copy" closes and runs the command.
+  const seg = stripWake(text).trim();
+  if (!seg) return;
+  if (isCopyTerminator(seg)) {
+    const c = stripCopy(seg);
+    if (c) cmdBuffer.push(c);
+    clearTimeout(wakeTimer);
+    speakLocalLine(COPY_ACK);
+    flushCmd();
+    return;
+  }
+  cmdBuffer.push(seg);
+  armCmdTimer();
+}
+
+// Keep the awake window alive while buffering, and dispatch after a pause if the
+// user never says the terminator (so quick commands still work hands-free).
+function armCmdTimer() {
+  awake = true;
+  applyStyle('listening', 'Listening...');
+  setStatus('listening — say "Copy" when done');
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => { awake = false; applyStyle('default', ''); setStatus('say "TARS" to wake'); resetCmd(); }, WAKE_WINDOW_MS);
+  clearTimeout(cmdTimer);
+  cmdTimer = setTimeout(flushCmd, CMD_FALLBACK_MS);
 }
 
 function dispatch(cmd) {
   awake = false;
   clearTimeout(wakeTimer);
+  resetCmd();
+  recentSpoken = COPY_ACK; speakEndedAt = Date.now(); // so TARS's own "Copy." ack isn't re-heard as a command
   applyStyle('thinking', '');
   setStatus('heard: ' + cmd);
   window.orbAPI.sendUtterance(cmd);
@@ -380,6 +435,9 @@ async function startMic() {
 
   const speechConfig = window.SpeechSDK.SpeechConfig.fromAuthorizationToken(creds.authToken, creds.region);
   speechConfig.speechRecognitionLanguage = 'en-US';
+  // Tolerate stutters / sub-second pauses: don't finalize a phrase until ~1.5s of
+  // silence (default is ~0.5s, which cut the user off mid-thought).
+  try { speechConfig.setProperty(window.SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, '1500'); } catch (_) {}
   // Tier 1: feed a noise-suppressed MediaStream instead of the raw default mic.
   const isolatedStream = await getIsolatedMicStream();
   const audioConfig = isolatedStream
