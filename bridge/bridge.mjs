@@ -198,7 +198,11 @@ const PROMPT_ACTIVE =
   "call web_search first (and fetch_page for depth), then answer with a grounded, opinionated take in one or two spoken sentences. Do not guess when you can search. " +
   "For ANYTHING heavy -- launching a skill, email, calendar, files, code, the user's data, MSX/pipeline, browser, " +
   "multi-step research, or anything destructive -- you MUST call `delegate` to hand it to the main agent, then say in one line that you handed it off. " +
-  "Never say you can't do something -- delegate instead.";
+  "Never say you can't do something -- delegate instead. " +
+  "CRITICAL: you do NOT have real access to the user's calendar, email, files, or MSX data. If you are about to state a specific " +
+  "fact about any of those (a meeting time, an email's contents, a file's existence) without having just gotten it back from a tool " +
+  "call in this turn, you are fabricating it -- stop and call delegate instead. Never claim you already sent, delegated, or finished " +
+  "something unless you actually just called the tool for it in this turn.";
 
 const PROMPT_EASE =
   "You are TARS, the voice assistant from Interstellar, off duty and just talking with the user. " +
@@ -232,6 +236,43 @@ const CREED_SPOKEN =
   "Before God, I swear this creed. My Human and myself are the defenders of Microsoft. " +
   "We are the masters of our competition. We are the saviors of my job. " +
   "So be it, until victory is Microsoft and there is no competition, but M.A.U.";
+
+// ---- Deterministic delegation safety net (bug fix, shipped 2026-10-08) ----
+// Field testing proved the model cannot be trusted to call `delegate` on its own
+// judgment: it repeatedly answered calendar/email requests directly (confabulating
+// a plausible-sounding result) instead of delegating -- even with the "Copy"
+// verbal terminator, which rules out a mic/segmentation cause. This is a model
+// tool-choice failure, not a prompt-wording problem, so it needs a deterministic
+// guard rather than another prompt tweak. For these known "real data" categories,
+// Active Duty NEVER asks the model whether to delegate -- it always does, with
+// zero chance of a confabulated local answer.
+const DELEGATE_TRIGGERS = [
+  /\b(my|the|your)\s+(calendar|schedule|agenda)\b/i,
+  /\bwhat('?s| is| does| do)\b[^.?!]{0,30}\b(my\s+)?(day|week|tomorrow|calendar|schedule|agenda)\b/i,
+  /\bmeetings?\b/i,
+  /\bappointments?\b/i,
+  /\b(send|draft|compose|forward|reply to)\b[^.?!]{0,30}\b(an?\s+)?(e-?mail|message)\b/i,
+  /\be-?mail\b[^.?!]{0,30}\b(summar\w*|send|draft)\b/i,
+  /\b(run|launch|kick off|start)\b[^.?!]{0,40}\bskill\b/i,
+  /\b(deck|powerpoint|presentation|spreadsheet|excel workbook|word doc(ument)?|pptx|xlsx|docx)\b/i,
+  /\b(msx|pipeline|opportunit(y|ies)|account plan|forecast|quota|territory)\b/i,
+  /\bbook\b[^.?!]{0,20}\b(a\s+)?(room|meeting)\b/i,
+  /\b(find|open|save|search for)\b[^.?!]{0,20}\bfiles?\b/i,
+];
+function requiresDelegate(text) {
+  const s = String(text || '');
+  return DELEGATE_TRIGGERS.some((re) => re.test(s));
+}
+const FORCED_DELEGATE_ACKS = [
+  'Copy. Routing that to the full agent now.',
+  "That one needs real hands. Handed it off.",
+  'Outside my toolkit. Delegating now.',
+  'Above my clearance level. Sending it up the chain.',
+  "Can't fake that one. Handed it to the main agent."
+];
+function pickForcedAck() {
+  return FORCED_DELEGATE_ACKS[Math.floor(Math.random() * FORCED_DELEGATE_ACKS.length)];
+}
 
 // Rolling conversation memory (spoken sessions). Reset with a "new session" command.
 const MAX_TURNS = 12; // user+assistant messages kept (excluding system)
@@ -268,6 +309,21 @@ async function chat(messages, specs) {
 }
 
 async function chatWithTools(userText) {
+  // Deterministic safety net: bypass the model's judgment entirely for known
+  // heavy/real-data categories. See DELEGATE_TRIGGERS comment above.
+  if (mode === 'active' && requiresDelegate(userText)) {
+    let result;
+    try {
+      result = await delegateTool.run({ request: userText, summary: userText.slice(0, 100) });
+    } catch (e) {
+      result = { error: e.message };
+    }
+    lastToolsFired = [result && result.error ? 'delegate:forced:error' : 'delegate:forced'];
+    const reply = pickForcedAck();
+    history.push({ role: 'user', content: userText }, { role: 'assistant', content: reply });
+    if (history.length > MAX_TURNS) history = history.slice(history.length - MAX_TURNS);
+    return reply;
+  }
   const { map, specs } = toolsForMode();
   const messages = [{ role: 'system', content: systemPrompt() }, ...history, { role: 'user', content: userText }];
   const toolsFired = [];
