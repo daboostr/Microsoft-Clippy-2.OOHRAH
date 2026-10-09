@@ -12,3 +12,12 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
 Get-CimInstance Win32_Process -Filter "Name='electron.exe'" |
   Where-Object { $_.CommandLine -match 'scout-voice' -or $_.ExecutablePath -match 'scout-voice' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# 3. Pause the Voice Handoff Queue automation. TARS is the only thing that can write
+# a queue item (via delegate) -- with TARS down there is never anything to process,
+# so leave a flag the automation checks first and no-ops on, instead of actually
+# disabling the automation (which cannot reliably re-enable itself later -- nothing
+# would be left running to notice "TARS is back"). launch-tars.ps1 clears this flag.
+$flag = Join-Path $env:USERPROFILE '.copilot\handoff\tars-down.flag'
+New-Item -ItemType Directory -Force -Path (Split-Path $flag) | Out-Null
+Set-Content -Path $flag -Value (Get-Date).ToString('o') -Encoding UTF8

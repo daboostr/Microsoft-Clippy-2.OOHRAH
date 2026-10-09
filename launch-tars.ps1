@@ -5,6 +5,10 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 
+# Clear the Voice Handoff Queue pause flag (set by stop-tars.ps1) -- TARS is back up
+# and can enqueue delegated work again, so let the automation do real work again.
+Remove-Item (Join-Path $env:USERPROFILE '.copilot\handoff\tars-down.flag') -Force -ErrorAction SilentlyContinue
+
 # Ensure Microsoft Scout (the main agent that executes voice hand-offs) is running.
 # Without it, delegated commands queue up but nothing works them.
 if (-not (Get-CimInstance Win32_Process -Filter "Name='scout.exe'")) {

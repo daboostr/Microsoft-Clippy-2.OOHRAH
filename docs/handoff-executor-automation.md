@@ -35,6 +35,26 @@ read from `~/.scout/copilot/session-store.db` so the executor has the raw materi
     A background automation run CAN reach the Teams relay with a direct tool call
     (verified 2026-10-07).
 
+## Pause while TARS is down
+
+TARS is the only thing that writes queue items (via `delegate`), so there is never real
+work for the executor while the orb is down. Rather than disabling the automation (which
+cannot reliably re-enable itself later -- nothing would be left running to notice "TARS is
+back"), `stop-tars.ps1` drops a flag file and `launch-tars.ps1` clears it:
+
+```
+~/.copilot/handoff/tars-down.flag   written by stop-tars.ps1, removed by launch-tars.ps1
+```
+
+STEP 0 of the executor prompt checks this flag before anything else. If present, the
+entire response is exactly `TARS_PAUSED` with zero other tool calls -- no queue listing,
+no Teams send. This makes a paused run essentially free while remaining fully reversible
+and requiring no cross-process automation API calls (plain scripts can't call
+`m_update_automation`; only an interactive Scout session can, and nothing would be left to
+call it on resume if the automation disabled itself). Verified end-to-end 2026-10-08:
+flag set by a real stop cycle, run confirmed paused (no file writes), flag cleared by a
+real launch cycle, stack confirmed back up.
+
 ## Notification contract
 
 - **Empty run:** executor's entire response is exactly `NO_QUEUE_ITEMS`; no Teams send.
@@ -53,6 +73,10 @@ read from `~/.scout/copilot/session-store.db` so the executor has the raw materi
 > - Write spoken replies to: replies\<id>.txt
 > - Move processed requests to: done\<id>.json
 > - Teams outbox (fallback): teams-outbox\<id>.txt
+> - Pause flag: tars-down.flag
+>
+> STEP 0 — Paused check (do this FIRST, before anything else):
+> If tars-down.flag exists, TARS Voice is shut down and cannot enqueue anything. Do NOT list the queue, do NOT call any other tool, do NOT send Teams. Your entire response must be exactly "TARS_PAUSED" and nothing else. Stop immediately.
 >
 > STEP 1 — Read the queue:
 > List the queue for *.json files. If there are NONE, do nothing further: reply with exactly "NO_QUEUE_ITEMS" and stop. Do NOT send any Teams message on an empty run.
