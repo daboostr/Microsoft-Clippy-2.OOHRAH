@@ -99,10 +99,10 @@ so you don't have to.
    [`skills/hydrate-tars/SKILL.md`](skills/hydrate-tars/SKILL.md)
    ([raw file](https://raw.githubusercontent.com/daboostr/Microsoft-Clippy-2.OOHRAH/main/skills/hydrate-tars/SKILL.md))
    from this repo.
-2. **Add it to Scout** — save the file as
-   `%USERPROFILE%\.scout\m-skills\hydrate-tars\SKILL.md` (create the folders if they don't
-   exist yet). Scout picks up custom skills from that folder automatically.
-3. **Run it** — in Microsoft Scout, type:
+2. **Add it to Scout** — start a new chat in Microsoft Scout and either paste the whole
+   contents of `SKILL.md` into the chat, or attach the file directly. Scout picks up the
+   skill from that.
+3. **Run it** — in that chat, type:
 
    ```
    /hydrate-tars
