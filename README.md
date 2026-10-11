@@ -95,11 +95,18 @@ so you don't have to.
 
 ## Install — the easy way
 
-In Microsoft Scout, run:
+1. **Download the skill** — grab
+   [`skills/hydrate-tars/SKILL.md`](skills/hydrate-tars/SKILL.md)
+   ([raw file](https://raw.githubusercontent.com/daboostr/Microsoft-Clippy-2.OOHRAH/main/skills/hydrate-tars/SKILL.md))
+   from this repo.
+2. **Add it to Scout** — save the file as
+   `%USERPROFILE%\.scout\m-skills\hydrate-tars\SKILL.md` (create the folders if they don't
+   exist yet). Scout picks up custom skills from that folder automatically.
+3. **Run it** — in Microsoft Scout, type:
 
-```
-/hydrate-tars
-```
+   ```
+   /hydrate-tars
+   ```
 
 The skill walks you through provisioning and launches TARS when it's done. If you don't have the
 Azure resources yet, it creates them for you.
